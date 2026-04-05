@@ -269,9 +269,17 @@ export default function RespondPage() {
                     className="flex-1 rounded-full border-2 border-gray-200 px-4 py-2 text-sm focus:border-emerald-600 focus:outline-none"
                   />
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (waitlistEmail.trim()) {
-                        console.log("Waitlist email:", waitlistEmail);
+                        await fetch("/api/register", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            email: waitlistEmail,
+                            name: "",
+                            type: "waitlist",
+                          }),
+                        });
                         setWaitlistDone(true);
                       }
                     }}
