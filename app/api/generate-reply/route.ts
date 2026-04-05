@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     let replyData;
 
-    if (process.env.MOCK_MODE === "true") {
+    if (process.env.MOCK_MODE?.trim() === "true") {
       await new Promise((resolve) => setTimeout(resolve, 800));
       replyData = getMockResponse(language);
     } else {
