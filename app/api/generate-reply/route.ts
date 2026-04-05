@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, getMockResponse } from "@/lib/prompts";
-import { getUsage, incrementUsage, getLimit, getRemaining } from "@/lib/usage";
+import { getUsage, incrementUsage, getLimit } from "@/lib/usage";
 import type { ToneId } from "@/lib/tones";
 
 function getClientIp(request: NextRequest): string {
@@ -13,31 +12,22 @@ function getClientIp(request: NextRequest): string {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+
   try {
-    const ip = getClientIp(request);
     const usage = getUsage(ip);
     const limit = getLimit(usage.registered);
 
-    // Check if needs registration (anonymous, used 2+)
     if (!usage.registered && usage.count >= 2) {
       return NextResponse.json(
-        {
-          error: "registration_required",
-          remaining: 0,
-          registered: false,
-        },
+        { error: "registration_required", remaining: 0, registered: false },
         { status: 429 }
       );
     }
 
-    // Check if at limit
     if (usage.count >= limit) {
       return NextResponse.json(
-        {
-          error: "limit_reached",
-          remaining: 0,
-          registered: usage.registered,
-        },
+        { error: "limit_reached", remaining: 0, registered: usage.registered },
         { status: 429 }
       );
     }
@@ -53,21 +43,17 @@ export async function POST(request: NextRequest) {
     };
 
     if (!review || !review.trim()) {
-      return NextResponse.json(
-        { error: "Review text is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Review text is required" }, { status: 400 });
     }
 
     let replyData;
 
     if (process.env.MOCK_MODE === "true") {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 800));
       replyData = getMockResponse(language);
     } else {
-      const anthropic = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
-      });
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
       const systemPrompt = buildSystemPrompt({
         businessType,
@@ -81,39 +67,24 @@ export async function POST(request: NextRequest) {
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
-        messages: [
-          {
-            role: "user",
-            content: systemPrompt,
-          },
-        ],
+        messages: [{ role: "user", content: systemPrompt }],
       });
 
       const textBlock = message.content.find((block) => block.type === "text");
       if (!textBlock || textBlock.type !== "text") {
-        return NextResponse.json(
-          { error: "No response generated" },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: "No response generated" }, { status: 500 });
       }
 
       replyData = JSON.parse(textBlock.text);
     }
 
-    // Increment usage AFTER successful generation
     const updated = incrementUsage(ip);
     const remaining = Math.max(0, getLimit(updated.registered) - updated.count);
 
-    return NextResponse.json({
-      ...replyData,
-      remaining,
-      registered: updated.registered,
-    });
+    return NextResponse.json({ ...replyData, remaining, registered: updated.registered });
   } catch (error) {
-    console.error("Error generating reply:", error);
-    return NextResponse.json(
-      { error: "Failed to generate reply" },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("generate-reply error:", message);
+    return NextResponse.json({ error: "Failed to generate reply", detail: message }, { status: 500 });
   }
 }
